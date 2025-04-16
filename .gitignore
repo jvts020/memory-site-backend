@@ -1,0 +1,10 @@
+.gradle/
+build/
+.idea/
+*.class
+*.log
+*.jar
+*.war
+*.[iI][mM][lL]
+*.[eE][aA][rR]
+hs_err_pid*
