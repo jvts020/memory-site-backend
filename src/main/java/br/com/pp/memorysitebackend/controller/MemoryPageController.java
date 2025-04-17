@@ -7,15 +7,18 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpHeaders; // Import para Headers
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType; // Import para MediaType
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
-import java.io.IOException; // Import para IOException
+import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.bind.annotation.RequestParam;
+
+
 
 @RestController
 @RequestMapping("/api/memory")
@@ -129,6 +132,34 @@ public class MemoryPageController {
         } catch (Exception e) {
             log.error("Erro inesperado ao gerar QR Code para slug {}", slug, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Erro inesperado."); // 500
+        }
+    }
+
+    // --- NOVO ENDPOINT: Upload de Imagens (POST /{slug}/images) ---
+    @PostMapping("/{slug}/images")
+    public ResponseEntity<?> uploadImages(
+            @PathVariable String slug,
+            // O nome "files" DEVE corresponder à chave usada no form-data do cliente
+            @RequestParam("files") List<MultipartFile> files) { // Precisa do import para @RequestParam e MultipartFile
+
+        log.info("Recebida requisição para upload de {} arquivos para slug: {}", files.size(), slug);
+        try {
+            // Delega o processamento para o serviço
+            List<String> savedFileNames = memoryPageService.uploadAndAssociateImages(slug, files);
+            log.info("Arquivos salvos com sucesso para slug {}: {}", slug, savedFileNames);
+            // Retorna 200 OK com a lista de nomes/URLs dos arquivos salvos
+            return ResponseEntity.ok(savedFileNames);
+
+        } catch (IllegalArgumentException e) {
+            // Erros como slug não encontrado ou limite de imagens excedido
+            log.warn("Erro de argumento ao fazer upload para slug {}: {}", slug, e.getMessage());
+            return ResponseEntity.badRequest().body(e.getMessage()); // 400 Bad Request
+        } catch (IOException e) {
+            log.error("Erro de IO ao fazer upload para slug {}", slug, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Erro ao salvar um ou mais arquivos."); // 500
+        } catch (Exception e) {
+            log.error("Erro inesperado ao fazer upload para slug {}", slug, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Erro inesperado no servidor."); // 500
         }
     }
 }

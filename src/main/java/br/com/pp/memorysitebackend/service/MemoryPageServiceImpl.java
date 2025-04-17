@@ -20,7 +20,14 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import org.springframework.web.multipart.MultipartFile;
+import java.time.Instant;
 
 @Service
 @RequiredArgsConstructor
@@ -32,6 +39,16 @@ public class MemoryPageServiceImpl implements MemoryPageService {
 
     private static final Pattern NON_ALPHANUMERIC_OR_HYPHEN = Pattern.compile("[^a-z0-9-]");
     private static final Pattern HYPHEN_DUPLICATES = Pattern.compile("-{2,}");
+
+    // Injeta Cliente S3 configurado no SupabaseConfig
+    private final S3Client s3Client;
+
+    // Injeta novas propriedades do Supabase
+    @Value("${supabase.api.url}")
+    private String supabaseApiUrl; // Usado para construir a URL pública
+
+    @Value("${supabase.bucket.name}")
+    private String supabaseBucketName;
 
     @Value("${app.base-url}") // Diz ao Spring para buscar o valor de 'app.base-url' no application.properties
     private String appBaseUrl;
@@ -69,7 +86,7 @@ public class MemoryPageServiceImpl implements MemoryPageService {
     }
 
     @Override
-    @Transactional(readOnly = true) // Assinatura atualizada para retornar Optional<DTO>
+    @Transactional // Assinatura atualizada para retornar Optional<DTO>
     public Optional<MemoryPageResponse> getMemoryPageBySlug(String slug) {
         Optional<MemoryPage> pageOptional = memoryPageRepository.findBySlug(slug);
         if (pageOptional.isPresent()) {
@@ -234,6 +251,74 @@ public class MemoryPageServiceImpl implements MemoryPageService {
         String collapsedHyphens = HYPHEN_DUPLICATES.matcher(replaced).replaceAll("-");
         return collapsedHyphens.replaceAll("^-|-$", ""); // Remove hífens no início/fim
     }
+    @Transactional
+    @Override
+    public List<String> uploadAndAssociateImages(String slug, List<MultipartFile> files) throws IOException, IllegalArgumentException {
+        MemoryPage memoryPage = memoryPageRepository.findBySlug(slug)
+                .orElseThrow(() -> new IllegalArgumentException("Memory page not found with slug: " + slug));
+
+        List<String> existingImageUrls = memoryPage.getImageUrls();
+        if (existingImageUrls == null) { existingImageUrls = new ArrayList<>(); }
+        if (files == null || files.isEmpty()) { throw new IllegalArgumentException("Nenhum arquivo enviado."); }
+        if (existingImageUrls.size() + files.size() > 7) { throw new IllegalArgumentException("Limite de 7 imagens excedido."); }
+
+        List<String> savedPublicUrls = new ArrayList<>();
+
+        for (MultipartFile file : files) {
+            if (file.isEmpty()) { continue; }
+
+            String originalFilename = file.getOriginalFilename();
+            String extension = "";
+            if (originalFilename != null && originalFilename.contains(".")) {
+                extension = originalFilename.substring(originalFilename.lastIndexOf("."));
+            }
+            // Gera chave única para o objeto no S3 (pode incluir path se quiser organizar)
+            String objectKey = "images/" + slug + "_" + Instant.now().toEpochMilli() + "_" + UUID.randomUUID().toString().substring(0,6) + extension;
+
+            log.info("Fazendo upload para Supabase Storage. Bucket: '{}', Key: '{}'", supabaseBucketName, objectKey);
+
+            try {
+                // Prepara a requisição de upload para o S3/Supabase
+                PutObjectRequest putObjectRequest = PutObjectRequest.builder()
+                        .bucket(supabaseBucketName) // Nome do bucket
+                        .key(objectKey)            // Chave (caminho/nome) do objeto no bucket
+                        .contentType(file.getContentType()) // Tipo de conteúdo (ex: image/jpeg)
+                        // .acl(ObjectCannedACL.PUBLIC_READ) // Se o bucket NÃO for público, pode precisar disso
+                        .build();
+
+                // Envia o arquivo
+                PutObjectResponse response = s3Client.putObject(putObjectRequest,
+                        RequestBody.fromInputStream(file.getInputStream(), file.getSize()));
+
+                // Verifica se o upload foi bem-sucedido (opcional, mas bom)
+                if (response != null && response.sdkHttpResponse().isSuccessful()) {
+                    // Constrói a URL pública do objeto no Supabase Storage
+                    // Formato: <Supabase_URL>/storage/v1/object/public/<Bucket_Name>/<Object_Key>
+                    // Precisamos codificar o objectKey caso tenha caracteres especiais (embora nosso padrão evite)
+                    String encodedKey = URLEncoder.encode(objectKey, StandardCharsets.UTF_8).replace("+", "%20");
+                    String publicUrl = supabaseApiUrl + "/storage/v1/object/public/" + supabaseBucketName + "/" + encodedKey;
+                    savedPublicUrls.add(publicUrl); // GUARDA A URL PÚBLICA
+                    log.info("Upload com sucesso para Supabase. URL pública: {}", publicUrl);
+                } else {
+                    log.error("Falha no upload para Supabase S3 para o arquivo {}. Resposta: {}", objectKey, response);
+                    throw new IOException("Falha no upload para Supabase S3 para o arquivo " + originalFilename);
+                }
+
+            } catch (Exception e) { // Captura exceções do SDK S3 também
+                log.error("Erro durante upload para Supabase S3 do arquivo '{}' para slug {}", objectKey, slug, e);
+                throw new IOException("Falha ao fazer upload do arquivo: " + originalFilename, e);
+            }
+        }
+
+        // Atualiza a entidade com as URLs PÚBLICAS
+        existingImageUrls.addAll(savedPublicUrls);
+        memoryPage.setImageUrls(existingImageUrls);
+        memoryPage.setSynced(false);
+        memoryPageRepository.save(memoryPage);
+        log.info("URLs de imagem (Supabase) atualizadas para slug {}: {}", slug, savedPublicUrls);
+
+        return savedPublicUrls; // Retorna as URLs públicas
+    }
 
     @Override
     @Transactional(readOnly = true)
@@ -243,7 +328,7 @@ public class MemoryPageServiceImpl implements MemoryPageService {
             throw new IllegalArgumentException("Memory page not found with slug: " + slug);
         }
 
-        // Agora a variável appBaseUrl será encontrada pois é um campo da classe
+
         String pageUrl = appBaseUrl + "/m/" + slug; // Use o campo injetado
         log.info("Gerando QR Code para a URL: {}", pageUrl);
 

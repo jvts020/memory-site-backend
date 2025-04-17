@@ -3,6 +3,8 @@ import java.io.IOException;
 // Importe os DTOs
 import br.com.pp.memorysitebackend.dto.CreateMemoryPageRequest;
 import br.com.pp.memorysitebackend.dto.MemoryPageResponse;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 // Remova a importação da entidade se não for mais usada diretamente na assinatura
 // import br.com.pp.memorysitebackend.entity.MemoryPage;
 
@@ -25,6 +27,8 @@ public interface MemoryPageService {
 
     // Mantém retorno boolean ou pode retornar void se preferir lançar exceção caso não encontre
     boolean deleteMemoryPageBySlug(String slug);
+
+    List<String> uploadAndAssociateImages(String slug, List<MultipartFile> files) throws IOException, IllegalArgumentException;
 
     byte[] generateQrCodeForSlug(String slug) throws IOException, IllegalArgumentException;
 }
