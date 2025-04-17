@@ -1,86 +1,134 @@
 package br.com.pp.memorysitebackend.service;
-
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import org.springframework.beans.factory.annotation.Value;
+import net.glxn.qrgen.javase.QRCode;
+import net.glxn.qrgen.core.image.ImageType;
+import br.com.pp.memorysitebackend.dto.CreateMemoryPageRequest;
+import br.com.pp.memorysitebackend.dto.MemoryPageResponse;
 import br.com.pp.memorysitebackend.entity.MemoryPage;
 import br.com.pp.memorysitebackend.repository.MemoryPageRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service; // Marca como um componente de Serviço do Spring
-import org.springframework.transaction.annotation.Transactional; // Para operações de escrita
-
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import java.text.Normalizer;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
-@Service // Indica ao Spring que esta classe contém lógica de negócio
-@RequiredArgsConstructor // Lombok para injeção de dependência via construtor
+
+@Service
+@RequiredArgsConstructor
+// Garanta que está implementando a interface ATUALIZADA
 public class MemoryPageServiceImpl implements MemoryPageService {
 
     private final MemoryPageRepository memoryPageRepository;
+    private static final Logger log = LoggerFactory.getLogger(MemoryPageServiceImpl.class);
 
+    private static final Pattern NON_ALPHANUMERIC_OR_HYPHEN = Pattern.compile("[^a-z0-9-]");
+    private static final Pattern HYPHEN_DUPLICATES = Pattern.compile("-{2,}");
+
+    @Value("${app.base-url}") // Diz ao Spring para buscar o valor de 'app.base-url' no application.properties
+    private String appBaseUrl;
     @Override
-    @Transactional // Garante que a operação seja atômica (ou salva tudo ou nada)
-    public MemoryPage createMemoryPage(MemoryPage memoryPage) {
-        // --- Lógica movida do Controller ---
-        // Validação básica (pode ser melhorada com DTOs e Bean Validation depois)
-        if (memoryPage.getDedicatedText() == null || memoryPage.getDedicatedText().isBlank()) {
-            throw new IllegalArgumentException("Texto dedicado não pode ser vazio.");
-        }
-        if (memoryPage.getImageUrls() != null && memoryPage.getImageUrls().size() > 7) {
+    @Transactional
+    // Assinatura atualizada para receber DTO de Request
+    public MemoryPageResponse createMemoryPage(CreateMemoryPageRequest requestDto) {
+        // Validação de regras de negócio (exemplo)
+        if (requestDto.getImageUrls() != null && requestDto.getImageUrls().size() > 7) {
             throw new IllegalArgumentException("Máximo de 7 imagens permitido.");
         }
+        // Nota: Validação de formato (@NotBlank etc) ocorre antes, no Controller, devido ao @Valid
 
-        // Geração do Slug (pode ser melhorado depois)
-        String slug = UUID.randomUUID().toString().substring(0, 8);
-        memoryPage.setSlug(slug);
+        MemoryPage memoryPage = mapToEntity(requestDto); // Mapeia DTO para Entidade
 
-        // Garantir estado inicial correto
-        memoryPage.setId(null); // Garante criação
+        // Lógica de Slug Melhorada
+        String finalSlug;
+        if (requestDto.getSuggestedSlug() != null && !requestDto.getSuggestedSlug().isBlank()) {
+            finalSlug = generateUniqueSlug(requestDto.getSuggestedSlug());
+        } else {
+            String baseSlug = sanitizeSlug(requestDto.getDedicatedText().substring(0, Math.min(requestDto.getDedicatedText().length(), 30)));
+            if (baseSlug.isEmpty()) { baseSlug = "memoria"; }
+            finalSlug = generateUniqueSlug(baseSlug);
+        }
+        memoryPage.setSlug(finalSlug);
+
+        // Estado inicial
+        memoryPage.setId(null);
         memoryPage.setViewCount(0);
-        memoryPage.setSynced(false); // Assume que não está sincronizado ao criar/modificar
+        memoryPage.setSynced(false); // Definindo o campo corrigido
 
-        // Salva no banco através do repositório
-        return memoryPageRepository.save(memoryPage);
+        MemoryPage savedPage = memoryPageRepository.save(memoryPage);
+        log.info("MemoryPage criada com slug: {}", savedPage.getSlug());
+        return mapToDto(savedPage); // Retorna DTO de Resposta
     }
 
     @Override
-    @Transactional(readOnly = true) // Opcional: Indica que é uma transação apenas de leitura (otimização)
-    public Optional<MemoryPage> getMemoryPageBySlug(String slug) {
-        // Lógica de incremento de view (exemplo simples)
+    @Transactional(readOnly = true) // Assinatura atualizada para retornar Optional<DTO>
+    public Optional<MemoryPageResponse> getMemoryPageBySlug(String slug) {
+        Optional<MemoryPage> pageOptional = memoryPageRepository.findBySlug(slug);
+        if (pageOptional.isPresent()) {
+            MemoryPage page = pageOptional.get();
+            // Incremento de view (exemplo - pode ser otimizado)
+            page.setViewCount(page.getViewCount() + 1);
+            memoryPageRepository.save(page); // Salva contador - CUIDADO: remove o readOnly=true se fizer isso
+            return Optional.of(mapToDto(page)); // Mapeia para DTO
+        }
+        return Optional.empty();
+    }
+
+    // ATENÇÃO: Se você incrementa o contador no GET, remova o (readOnly = true) acima
+    // e adicione @Transactional sem readOnly. Fica assim:
+    /*
+    @Override
+    @Transactional // Não é mais readOnly porque salvamos o contador
+    public Optional<MemoryPageResponse> getMemoryPageBySlug(String slug) {
         Optional<MemoryPage> pageOptional = memoryPageRepository.findBySlug(slug);
         if (pageOptional.isPresent()) {
             MemoryPage page = pageOptional.get();
             page.setViewCount(page.getViewCount() + 1);
-            memoryPageRepository.save(page); // Salva a view incrementada
-            return Optional.of(page); // Retorna a página atualizada
+            MemoryPage updatedPage = memoryPageRepository.save(page); // Salva e pega a referência atualizada
+            return Optional.of(mapToDto(updatedPage));
         }
-        return Optional.empty(); // Ou retorna o Optional vazio diretamente
-        // return memoryPageRepository.findBySlug(slug); // Busca simples sem contador
+        return Optional.empty();
     }
+    */
+
 
     @Override
-    @Transactional(readOnly = true)
-    public List<MemoryPage> getAllMemoryPages() {
-        return memoryPageRepository.findAll(); // Busca todos
+    @Transactional(readOnly = true) // Assinatura atualizada para retornar List<DTO>
+    public List<MemoryPageResponse> getAllMemoryPages() {
+        return memoryPageRepository.findAll()
+                .stream()
+                .map(this::mapToDto) // Usa o método de mapeamento
+                .collect(Collectors.toList());
     }
 
     @Override
     @Transactional
-    public Optional<MemoryPage> updateMemoryPage(String slug, MemoryPage updatedPageData) {
-        // 1. Busca a página existente pelo slug
+    // Assinatura atualizada para receber DTO de Request e retornar Optional<DTO>
+    public Optional<MemoryPageResponse> updateMemoryPage(String slug, CreateMemoryPageRequest updatedPageData) {
         Optional<MemoryPage> existingPageOptional = memoryPageRepository.findBySlug(slug);
 
         if (existingPageOptional.isPresent()) {
             MemoryPage existingPage = existingPageOptional.get();
 
-            // 2. Atualiza os campos desejados (CUIDADO: não sobrescreva ID, slug, creationDate)
-            // Validações podem ser adicionadas aqui também
-            if (updatedPageData.getDedicatedText() != null && !updatedPageData.getDedicatedText().isBlank()) {
+            // Validação de regras de negócio (exemplo)
+            if (updatedPageData.getImageUrls() != null && updatedPageData.getImageUrls().size() > 7) {
+                throw new IllegalArgumentException("Máximo de 7 imagens permitido.");
+            }
+
+            // Atualiza campos com base no DTO
+            // Nota: A validação de formato (@NotBlank etc) ocorreu no Controller com @Valid
+            if (updatedPageData.getDedicatedText() != null) { // Verifica se veio no DTO
                 existingPage.setDedicatedText(updatedPageData.getDedicatedText());
             }
             if (updatedPageData.getImageUrls() != null) {
-                if(updatedPageData.getImageUrls().size() > 7) {
-                    throw new IllegalArgumentException("Máximo de 7 imagens permitido.");
-                }
-                // Substitui a lista inteira (pode ser otimizado se necessário)
                 existingPage.getImageUrls().clear();
                 existingPage.getImageUrls().addAll(updatedPageData.getImageUrls());
             }
@@ -90,25 +138,124 @@ public class MemoryPageServiceImpl implements MemoryPageService {
             if (updatedPageData.getTargetDate() != null) {
                 existingPage.setTargetDate(updatedPageData.getTargetDate());
             }
-            existingPage.setSynced(false); // Marcar como não sincronizado ao atualizar
+            existingPage.setSynced(false); // Marcar como não sincronizado
 
-            // 3. Salva a entidade atualizada
-            return Optional.of(memoryPageRepository.save(existingPage));
+            MemoryPage savedPage = memoryPageRepository.save(existingPage);
+            return Optional.of(mapToDto(savedPage)); // Retorna DTO atualizado
         } else {
-            return Optional.empty(); // Retorna vazio se não encontrou a página para atualizar
+            return Optional.empty();
         }
     }
 
     @Override
     @Transactional
+    // Assinatura não muda, mas a lógica interna sim (se necessário)
     public boolean deleteMemoryPageBySlug(String slug) {
         Optional<MemoryPage> pageOptional = memoryPageRepository.findBySlug(slug);
         if (pageOptional.isPresent()) {
-            memoryPageRepository.delete(pageOptional.get()); // Deleta a entidade encontrada
-            // Alternativa: memoryPageRepository.deleteById(pageOptional.get().getId());
-            return true; // Indica que deletou com sucesso
+            memoryPageRepository.delete(pageOptional.get());
+            log.info("MemoryPage deletada com slug: {}", slug);
+            return true;
         } else {
-            return false; // Indica que não encontrou para deletar
+            log.warn("Tentativa de deletar MemoryPage com slug não encontrado: {}", slug);
+            return false;
         }
     }
+
+    // --- Métodos auxiliares de Mapeamento e Slug ---
+
+    // Mapeia DTO de criação para Entidade
+    private MemoryPage mapToEntity(CreateMemoryPageRequest dto) {
+        MemoryPage entity = new MemoryPage();
+        // Mapeia campos do DTO para a entidade
+        entity.setDedicatedText(dto.getDedicatedText());
+        entity.setImageUrls(dto.getImageUrls() != null ? new ArrayList<>(dto.getImageUrls()) : new ArrayList<>());
+        entity.setMusicUrl(dto.getMusicUrl());
+        entity.setTargetDate(dto.getTargetDate());
+        // id, slug, creationDate, viewCount, isSynced são gerados/definidos pelo serviço/JPA
+        return entity;
+    }
+
+    // Mapeia Entidade para DTO de resposta
+    private MemoryPageResponse mapToDto(MemoryPage entity) {
+        // Cria um DTO com os dados da entidade
+        return new MemoryPageResponse(
+                entity.getId(),
+                entity.getSlug(),
+                entity.getDedicatedText(),
+                // Garante que a lista não seja nula no DTO, mesmo que seja no banco (improvável com ElementCollection)
+                entity.getImageUrls() != null ? new ArrayList<>(entity.getImageUrls()) : new ArrayList<>(),
+                entity.getMusicUrl(),
+                entity.getTargetDate(),
+                entity.getCreationDate(),
+                entity.getViewCount()
+        );
+    }
+
+    // Gera um slug único baseado em uma sugestão/base
+    private String generateUniqueSlug(String baseSuggestion) {
+        String currentSlug = sanitizeSlug(baseSuggestion);
+        if (currentSlug.isEmpty()) { // Garante que não seja vazio após sanitizar
+            currentSlug = UUID.randomUUID().toString().substring(0, 8); // Fallback se sanitização resultar em vazio
+        }
+        int attempt = 0;
+        String originalSlug = currentSlug; // Guarda o slug base sanitizado
+
+        // Loop para garantir unicidade
+        while (memoryPageRepository.findBySlug(currentSlug).isPresent()) {
+            attempt++;
+            String suffix = "-" + attempt;
+            // Garante que não exceda o tamanho máximo da coluna
+            int maxBaseLength = 50 - suffix.length();
+            // Recalcula a base a partir do original sanitizado para evitar encurtamento progressivo
+            String base = originalSlug.substring(0, Math.min(originalSlug.length(), maxBaseLength));
+            currentSlug = base + suffix;
+            log.warn("Colisão de slug detectada para '{}'. Tentando '{}'", baseSuggestion, currentSlug);
+            if (attempt > 10) {
+                log.error("Muitas tentativas de gerar slug único para base: {}. Usando UUID como fallback.", baseSuggestion);
+                currentSlug = UUID.randomUUID().toString().substring(0, 12);
+                // Verifica uma última vez o fallback (extremamente improvável colidir)
+                if (memoryPageRepository.findBySlug(currentSlug).isPresent()) {
+                    throw new IllegalStateException("Não foi possível gerar slug único após múltiplas tentativas e fallback.");
+                }
+                break; // Sai do loop com o fallback
+            }
+        }
+        return currentSlug;
+    }
+
+    // Limpa e formata uma string para ser usada como slug
+    private String sanitizeSlug(String input) {
+        if (input == null || input.isBlank()) { return ""; }
+        String normalized = Normalizer.normalize(input, Normalizer.Form.NFD);
+        String withoutAccents = normalized.replaceAll("\\p{InCombiningDiacriticalMarks}+", "");
+        String lowerCase = withoutAccents.toLowerCase();
+        String replaced = NON_ALPHANUMERIC_OR_HYPHEN.matcher(lowerCase).replaceAll("-");
+        String collapsedHyphens = HYPHEN_DUPLICATES.matcher(replaced).replaceAll("-");
+        return collapsedHyphens.replaceAll("^-|-$", ""); // Remove hífens no início/fim
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public byte[] generateQrCodeForSlug(String slug) throws IOException, IllegalArgumentException {
+        if (!memoryPageRepository.findBySlug(slug).isPresent()) {
+            log.warn("Tentativa de gerar QR Code para slug não existente: {}", slug);
+            throw new IllegalArgumentException("Memory page not found with slug: " + slug);
+        }
+
+        // Agora a variável appBaseUrl será encontrada pois é um campo da classe
+        String pageUrl = appBaseUrl + "/m/" + slug; // Use o campo injetado
+        log.info("Gerando QR Code para a URL: {}", pageUrl);
+
+        try (ByteArrayOutputStream stream = QRCode.from(pageUrl)
+                .to(ImageType.PNG)
+                .withSize(250, 250)
+                .stream()) {
+            return stream.toByteArray();
+        } catch (Exception e) {
+            log.error("Erro ao gerar stream de bytes do QR Code para URL: {}", pageUrl, e);
+            throw new IOException("Erro ao gerar imagem QR Code", e);
+        }
+    }
+
 }
