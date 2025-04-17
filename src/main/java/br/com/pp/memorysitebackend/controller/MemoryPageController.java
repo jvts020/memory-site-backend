@@ -28,7 +28,6 @@ public class MemoryPageController {
     private final MemoryPageService memoryPageService;
     private static final Logger log = LoggerFactory.getLogger(MemoryPageController.class);
 
-    // --- Endpoint CREATE (POST /) ---
     @PostMapping
     public ResponseEntity<?> createMemoryPage(@Valid @RequestBody CreateMemoryPageRequest requestDto) {
         log.info("Recebida requisição para criar MemoryPage: {}", requestDto);
@@ -45,7 +44,6 @@ public class MemoryPageController {
         }
     }
 
-    // --- Endpoint READ by Slug (GET /{slug}) ---
     @GetMapping("/{slug}")
     public ResponseEntity<MemoryPageResponse> getMemoryPageBySlug(@PathVariable String slug) {
         log.info("Recebida requisição para buscar MemoryPage com slug: {}", slug);
@@ -60,7 +58,6 @@ public class MemoryPageController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
-    // --- Endpoint READ All (GET /) ---
     @GetMapping
     public ResponseEntity<List<MemoryPageResponse>> getAllMemoryPages() {
         log.info("Recebida requisição para listar todas MemoryPages");
@@ -69,7 +66,6 @@ public class MemoryPageController {
         return ResponseEntity.ok(pageDtos);
     }
 
-    // --- Endpoint UPDATE (PUT /{slug}) ---
     @PutMapping("/{slug}")
     public ResponseEntity<?> updateMemoryPage(@PathVariable String slug, @Valid @RequestBody CreateMemoryPageRequest requestDto) {
         log.info("Recebida requisição para atualizar MemoryPage com slug {}: {}", slug, requestDto);
@@ -92,7 +88,6 @@ public class MemoryPageController {
         }
     }
 
-    // --- Endpoint DELETE (DELETE /{slug}) ---
     @DeleteMapping("/{slug}")
     public ResponseEntity<Void> deleteMemoryPage(@PathVariable String slug) {
         log.info("Recebida requisição para deletar MemoryPage com slug: {}", slug);
@@ -106,60 +101,52 @@ public class MemoryPageController {
         }
     }
 
-    // --- NOVO ENDPOINT: GET /{slug}/qrcode ---
     @GetMapping("/{slug}/qrcode")
     public ResponseEntity<?> getQrCode(@PathVariable String slug) {
         log.info("Recebida requisição para gerar QR Code para slug: {}", slug);
         try {
             byte[] qrCodeBytes = memoryPageService.generateQrCodeForSlug(slug);
 
-            // Prepara os Headers para retornar uma imagem PNG
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.IMAGE_PNG);
             headers.setContentLength(qrCodeBytes.length);
 
             log.info("Retornando imagem QR Code para slug: {}", slug);
-            // Retorna 200 OK com os bytes da imagem e os headers corretos
             return new ResponseEntity<>(qrCodeBytes, headers, HttpStatus.OK);
 
         } catch (IllegalArgumentException e) {
-            // Slug não encontrado pelo serviço
             log.warn("Erro ao gerar QR Code para slug {}: {}", slug, e.getMessage());
-            return ResponseEntity.notFound().build(); // 404 Not Found
+            return ResponseEntity.notFound().build();
         } catch (IOException e) {
             log.error("Erro de IO ao gerar QR Code para slug {}", slug, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Erro ao gerar imagem QR Code."); // 500
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Erro ao gerar imagem QR Code.");
         } catch (Exception e) {
             log.error("Erro inesperado ao gerar QR Code para slug {}", slug, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Erro inesperado."); // 500
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Erro inesperado.");
         }
     }
 
-    // --- NOVO ENDPOINT: Upload de Imagens (POST /{slug}/images) ---
+
     @PostMapping("/{slug}/images")
     public ResponseEntity<?> uploadImages(
             @PathVariable String slug,
-            // O nome "files" DEVE corresponder à chave usada no form-data do cliente
-            @RequestParam("files") List<MultipartFile> files) { // Precisa do import para @RequestParam e MultipartFile
+            @RequestParam("files") List<MultipartFile> files) {
 
         log.info("Recebida requisição para upload de {} arquivos para slug: {}", files.size(), slug);
         try {
-            // Delega o processamento para o serviço
             List<String> savedFileNames = memoryPageService.uploadAndAssociateImages(slug, files);
             log.info("Arquivos salvos com sucesso para slug {}: {}", slug, savedFileNames);
-            // Retorna 200 OK com a lista de nomes/URLs dos arquivos salvos
             return ResponseEntity.ok(savedFileNames);
 
         } catch (IllegalArgumentException e) {
-            // Erros como slug não encontrado ou limite de imagens excedido
             log.warn("Erro de argumento ao fazer upload para slug {}: {}", slug, e.getMessage());
-            return ResponseEntity.badRequest().body(e.getMessage()); // 400 Bad Request
+            return ResponseEntity.badRequest().body(e.getMessage());
         } catch (IOException e) {
             log.error("Erro de IO ao fazer upload para slug {}", slug, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Erro ao salvar um ou mais arquivos."); // 500
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Erro ao salvar um ou mais arquivos.");
         } catch (Exception e) {
             log.error("Erro inesperado ao fazer upload para slug {}", slug, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Erro inesperado no servidor."); // 500
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Erro inesperado no servidor.");
         }
     }
 }
