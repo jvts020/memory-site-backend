@@ -29,6 +29,7 @@ import java.nio.charset.StandardCharsets;
 import org.springframework.web.multipart.MultipartFile;
 import java.time.Instant;
 
+
 @Service
 @RequiredArgsConstructor
 public class MemoryPageServiceImpl implements MemoryPageService {
@@ -180,7 +181,6 @@ public class MemoryPageServiceImpl implements MemoryPageService {
         int attempt = 0;
         String originalSlug = currentSlug;
 
-        // Loop para garantir unicidade
         while (memoryPageRepository.findBySlug(currentSlug).isPresent()) {
             attempt++;
             String suffix = "-" + attempt;
@@ -293,5 +293,66 @@ public class MemoryPageServiceImpl implements MemoryPageService {
             throw new IOException("Erro ao gerar imagem QR Code", e);
         }
     }
+    @Override
+    @Transactional
+    public String uploadAndAssociateMusic(String slug, MultipartFile musicFile) throws IOException, IllegalArgumentException {
+        if (musicFile == null || musicFile.isEmpty()) {
+            throw new IllegalArgumentException("Arquivo de música não enviado ou vazio.");
+        }
 
+        String contentType = musicFile.getContentType();
+        if (contentType == null || !contentType.startsWith("audio/")) {
+            log.warn("Tentativa de upload de arquivo não-áudio para música. Slug: {}, Tipo: {}", slug, contentType);
+            throw new IllegalArgumentException("Formato de arquivo de música inválido. Recebido: " + contentType);
+        }
+
+        MemoryPage memoryPage = memoryPageRepository.findBySlug(slug)
+                .orElseThrow(() -> {
+                    log.warn("Tentativa de upload de música para slug não existente: {}", slug);
+                    return new IllegalArgumentException("Memory page not found with slug: " + slug);
+                });
+
+        String originalFilename = musicFile.getOriginalFilename();
+        String extension = "";
+        if (originalFilename != null && originalFilename.contains(".")) {
+            extension = originalFilename.substring(originalFilename.lastIndexOf("."));
+        }
+        String objectKey = "music/" + slug + "_" + Instant.now().toEpochMilli() + "_" + UUID.randomUUID().toString().substring(0, 6) + extension;
+
+        log.info("Fazendo upload de música para Supabase Storage. Bucket: '{}', Key: '{}'", supabaseBucketName, objectKey);
+
+
+        try {
+            PutObjectRequest putObjectRequest = PutObjectRequest.builder()
+                    .bucket(supabaseBucketName)
+                    .key(objectKey)
+                    .contentType(contentType)
+                    .build();
+
+            PutObjectResponse response = s3Client.putObject(putObjectRequest,
+                    RequestBody.fromInputStream(musicFile.getInputStream(), musicFile.getSize()));
+
+            if (response != null && response.sdkHttpResponse().isSuccessful()) {
+                String encodedKey = URLEncoder.encode(objectKey, StandardCharsets.UTF_8).replace("+", "%20");
+                String publicUrl = supabaseApiUrl + "/storage/v1/object/public/" + supabaseBucketName + "/" + encodedKey;
+                log.info("Upload de música com sucesso para Supabase. URL pública: {}", publicUrl);
+
+
+                memoryPage.setMusicUrl(publicUrl);
+                memoryPage.setSynced(false);
+                memoryPageRepository.save(memoryPage);
+                log.info("URL de música atualizada para slug {}: {}", slug, publicUrl);
+
+
+                return publicUrl;
+            } else {
+                log.error("Falha no upload de música para Supabase S3. Key: {}. Resposta: {}", objectKey, response);
+                throw new IOException("Falha no upload de música para Supabase S3.");
+            }
+
+        } catch (Exception e) {
+            log.error("Erro durante upload de música para Supabase S3. Key: {}, Slug: {}", objectKey, slug, e);
+            throw new IOException("Falha ao fazer upload do arquivo de música: " + originalFilename, e);
+        }
+    }
 }

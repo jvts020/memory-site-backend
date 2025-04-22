@@ -23,4 +23,7 @@ public interface MemoryPageService {
     List<String> uploadAndAssociateImages(String slug, List<MultipartFile> files) throws IOException, IllegalArgumentException;
 
     byte[] generateQrCodeForSlug(String slug) throws IOException, IllegalArgumentException;
+
+    String uploadAndAssociateMusic(String slug, MultipartFile musicFile) throws IOException, IllegalArgumentException;
+
 }
