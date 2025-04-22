@@ -14,14 +14,12 @@ import java.util.Map;
 public class ErrorResponse {
     private LocalDateTime timestamp;
     private int status;
-    private String error; // Ex: "Bad Request", "Not Found"
-    private String message; // Mensagem geral do erro
-    private String path;    // URL que causou o erro
+    private String error;
+    private String message;
+    private String path;
 
-    // Opcional: para erros de validação
     private Map<String, String> validationErrors;
 
-    // Construtor simplificado para erros comuns
     public ErrorResponse(int status, String error, String message, String path) {
         this.timestamp = LocalDateTime.now();
         this.status = status;
