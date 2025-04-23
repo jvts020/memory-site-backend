@@ -1,8 +1,9 @@
 package br.com.pp.memorysitebackend.dto;
 
+import jakarta.validation.constraints.Future;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
-import jakarta.validation.constraints.PastOrPresent;
+import jakarta.validation.constraints.Future;
 import lombok.Data;
 import org.hibernate.validator.constraints.URL;
 
@@ -21,7 +22,7 @@ public class CreateMemoryPageRequest {
     @URL(message = "URL da música inválida.")
     private String musicUrl;
 
-    @PastOrPresent(message = "Data alvo não pode ser no futuro.")
+    @Future(message = "Data alvo deve ser no futuro.")
     private LocalDateTime targetDate;
 
 
