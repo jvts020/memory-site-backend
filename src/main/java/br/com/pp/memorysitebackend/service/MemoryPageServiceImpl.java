@@ -247,7 +247,7 @@ public class MemoryPageServiceImpl implements MemoryPageService {
 
                 if (response != null && response.sdkHttpResponse().isSuccessful()) {
                     String encodedKey = URLEncoder.encode(objectKey, StandardCharsets.UTF_8).replace("+", "%20");
-                    String publicUrl = supabaseApiUrl + "/storage/v1/object/public/" + supabaseBucketName + "/" + encodedKey;
+                    String publicUrl = supabaseApiUrl + "/object/public/" + supabaseBucketName + "/" + encodedKey;
                     savedPublicUrls.add(publicUrl);
                     log.info("Upload com sucesso para Supabase. URL pública: {}", publicUrl);
                 } else {
