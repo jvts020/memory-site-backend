@@ -24,6 +24,9 @@ public class MemoryPage {
     @Column(nullable = false, unique = true, length = 50)
     private String slug;
 
+    @Column(nullable = false, length = 100)
+    private String title;
+
     @Lob
     @Column(columnDefinition = "TEXT")
     private String dedicatedText;

@@ -113,7 +113,9 @@ public class MemoryPageServiceImpl implements MemoryPageService {
             if (updatedPageData.getImageUrls() != null && updatedPageData.getImageUrls().size() > 7) {
                 throw new IllegalArgumentException("Máximo de 7 imagens permitido.");
             }
-
+            if (updatedPageData.getTitle() != null) { // <<<--- ADICIONADO
+                existingPage.setTitle(updatedPageData.getTitle()); // <<<--- ADICIONADO
+            }
             if (updatedPageData.getDedicatedText() != null) {
                 existingPage.setDedicatedText(updatedPageData.getDedicatedText());
             }
@@ -153,6 +155,7 @@ public class MemoryPageServiceImpl implements MemoryPageService {
 
     private MemoryPage mapToEntity(CreateMemoryPageRequest dto) {
         MemoryPage entity = new MemoryPage();
+        entity.setTitle(dto.getTitle());
         entity.setDedicatedText(dto.getDedicatedText());
         entity.setImageUrls(dto.getImageUrls() != null ? new ArrayList<>(dto.getImageUrls()) : new ArrayList<>());
         entity.setMusicUrl(dto.getMusicUrl());
@@ -164,6 +167,7 @@ public class MemoryPageServiceImpl implements MemoryPageService {
         return new MemoryPageResponse(
                 entity.getId(),
                 entity.getSlug(),
+                entity.getTitle(),
                 entity.getDedicatedText(),
                 entity.getImageUrls() != null ? new ArrayList<>(entity.getImageUrls()) : new ArrayList<>(),
                 entity.getMusicUrl(),

@@ -15,6 +15,7 @@ public class MemoryPageResponse {
 
     private Long id;
     private String slug;
+    private String title;
     private String dedicatedText;
     private List<String> imageUrls;
     private String musicUrl;

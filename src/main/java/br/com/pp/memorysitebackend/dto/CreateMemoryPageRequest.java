@@ -13,6 +13,10 @@ import java.util.List;
 @Data
 public class CreateMemoryPageRequest {
 
+    @NotBlank(message = "Título não pode ser vazio.")
+    @Size(max = 100, message = "Título muito longo (máx 100 caracteres).")
+    private String title;
+
     @NotBlank(message = "Texto dedicado não pode ser vazio.")
     private String dedicatedText;
 
