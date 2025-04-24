@@ -3,7 +3,6 @@ build/
 .idea/
 *.class
 *.log
-*.jar
 *.war
 *.[iI][mM][lL]
 *.[eE][aA][rR]
