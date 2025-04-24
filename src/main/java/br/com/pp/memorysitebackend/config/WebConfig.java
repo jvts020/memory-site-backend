@@ -9,7 +9,7 @@ public class WebConfig implements WebMvcConfigurer {
 
     // URL do seu frontend em desenvolvimento
     // TODO: Adicionar a URL do frontend em produção aqui depois
-    private static final String FRONTEND_DEV_URL = "http://localhost:5174";
+    private static final String FRONTEND_DEV_URL = "https://memory-site-frontend.onrender.com";
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
